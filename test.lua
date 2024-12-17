@@ -9,6 +9,7 @@ end
 local a = class.new("a")
 function a:__init(data)
     print("a("..tostring(self)..","..data.name..")")
+    self.__private.args = data
 end
 function a:__destroy()
     print("~a("..tostring(self)..")")

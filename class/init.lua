@@ -189,22 +189,32 @@ function new(name)
 
   local function call(obj, ...)
     local meta = getmetatable(obj)
+    local selfmeta = getmetatable(meta.__self)
+    selfmeta.__incall = selfmeta.__incall + 1
+    meta.__incall = selfmeta.__incall + 1
     if meta.__super then 
         for _,child in ipairs(meta.__super) do
             child(...)
         end
     end
     if meta.__init then meta.__init(obj, ...) end
+    selfmeta.__incall = selfmeta.__incall - 1
+    meta.__incall = selfmeta.__incall - 1
   end
 
   local function __gc(obj)
     local meta = getmetatable(obj)
+    local selfmeta = getmetatable(meta.__self)
+    selfmeta.__incall = selfmeta.__incall + 1
+    meta.__incall = selfmeta.__incall + 1
     if meta.__destroy then meta.__destroy(obj) end
     if meta.__super then 
         for i = 1, #meta.__super do
             table.remove(meta.__super, 1)
         end
     end
+    selfmeta.__incall = selfmeta.__incall - 1
+    meta.__incall = selfmeta.__incall - 1
   end
 
   local obj = {}
@@ -244,8 +254,7 @@ local function to_json(obj)
                         json = json.."\""..name.."\":\""..virtual.."function\","
                     else
                         json = json.."\""..name.."\":{"
-                        iterate(value, json)
-                        json = json.."},"
+                        json = json..iterate(value).."},"
                     end
                 else
                     json = json.."\""..name.."\":"..tostring(value)..","
