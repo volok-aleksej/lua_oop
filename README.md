@@ -18,7 +18,7 @@ function a:__init(...)
 end
 ```
 
-**create dectructor of class**\
+**create destructor of class**\
 function *obj*:__destroy()
 * *obj*: object of class
 * no parameters
@@ -86,7 +86,7 @@ end
 a:next()           -- not error: call successful
 a:start()          -- error: attempts call nil value
 ```
-**inheriting classes**
+**inheriting classes**\
 class.inherit(*name*, *obj*[, *obj*...])
 * *name* : name of new class
 * *obj* : parent class object
