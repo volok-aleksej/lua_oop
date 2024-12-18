@@ -9,12 +9,13 @@ local function create_function(obj, name, func)
     cselfmeta.__incall = cselfmeta.__incall + 1
     cmeta.__incall = cselfmeta.__incall + 1
     if objmt.__virtual and objmt.__self then
-      obj = cmeta[objmt.__name]
+      obj = cselfmeta[objmt.__name]
       objmt = getmetatable(obj)
     end
-    objmt.__func(objmt.__class, ...)
+    local ret = objmt.__func(objmt.__class, ...)
     cmeta.__incall = cmeta.__incall - 1
     cselfmeta.__incall = cselfmeta.__incall - 1
+    return ret
   end
   
   local function findex(func, name)
@@ -74,7 +75,6 @@ local function check_access(obj, super)
     if not meta then return obj end
     local cmeta = getmetatable(meta.__class)
     local cmeta = getmetatable(cmeta.__self)
-    --print("check_access", meta.__name, meta.__access, super, cmeta.__incall)
     if cmeta.__incall > 0 then
         if not super or meta.__access ~= PRIVATE then return obj end
     else
@@ -148,6 +148,7 @@ function new(name)
       return callback(data)
     end
 
+    if rawget(obj, name) then return rawget(obj, name) end
     if pmt[name]
     and check_callback(pmt[name]) then return check_access(pmt[name], issuper) end
     if pmt.__super then
