@@ -262,7 +262,7 @@ function new(name)
             return false
         end)
       end
-    else
+    elseif string.sub(name, 1, 2) ~= "__" then
       rawset(obj, name, value)
     end
   end
@@ -338,21 +338,30 @@ local function to_json(obj)
                         json = json..iterate(value).."},"
                     end
                 else
-                    json = json.."\""..name.."\":"..tostring(value)..","
+                  if type(name) == "string" then
+                    json = json.."\""..name.."\":"
+                  end
+                  if type(value) == "string" then
+                    json = json.."\""..tostring(value).."\","
+                  else
+                    json = json..tostring(value)..","
+                  end
                 end
             end
         end
         return json:sub(1, -2)
     end
     local function iterate_object(obj)
-        local json = iterate(obj)..","
+        local json = ""
+        local s = iterate(obj)
+        if string.len(s) ~= 0 then json = "public:{"..s.."}," end
         local meta = getmetatable(obj)
-        local s = iterate(meta)
+        s = iterate(meta)
         if string.len(s) ~= 0 then json = json..s.."," end
         s = iterate(meta.__private)
-        if string.len(s) ~= 0 then json = json..s.."," end
+        if string.len(s) ~= 0 then json = json.."private:{"..s.."}," end
         s = iterate(meta.__protected)
-        if string.len(s) ~= 0 then json = json..s.."," end
+        if string.len(s) ~= 0 then json = json.."protected:{"..s.."}," end
         if meta.__super then
             for _, child in ipairs(meta.__super) do
                 local cmeta = getmetatable(child)
