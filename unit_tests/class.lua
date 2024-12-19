@@ -103,7 +103,8 @@ end
 
 function test_super()
     local a = class.new("a")
-    local b = class.inherit("b", a)
+    local c = class.new("c")
+    local b = class.inherit("b", a, c)
     function a:__init()
         self.attr2 = "a_attr2"
         self.__protected.attr1 = "a_attr1"
@@ -114,11 +115,16 @@ function test_super()
         self.__private.attr1 = "b_attr1"
     end
 
+    function c:__init()
+        self.attr3 = "attr3"
+    end
+
     b()
     assert_equal("b_attr2", b.attr2)
     assert_equal("a_attr2", b.super.attr2)
     assert_equal("a_attr2", b.super("a").attr2)
     assert_equal(nil, b.super.attr1)
+    assert_equal("attr3", b.super.attr3)
 
     function b:test_super()
         assert_equal("b_attr1", self.attr1)
@@ -126,4 +132,12 @@ function test_super()
     end
 
     b:test_super()
+end
+
+function test_getmetatable()
+    local a = class.new("a")
+    function a:data()
+    end
+    local meta = getmetatable(a)
+    assert_equal(nil, meta.data)
 end
