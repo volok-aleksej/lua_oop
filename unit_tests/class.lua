@@ -141,3 +141,17 @@ function test_getmetatable()
     local meta = getmetatable(a)
     assert_equal(nil, meta.data)
 end
+
+function test_access_functions()
+    local a = class.new("a")
+    function a:__init()
+        function self.__protected.test(self)
+            assert_equal(self, a)
+        end
+    end
+    function a:data()
+        self:test()
+    end
+    a()
+    a:data()
+end
