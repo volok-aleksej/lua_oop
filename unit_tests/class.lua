@@ -158,9 +158,11 @@ end
 
 function test_destroy()
     local test = 5
+    local test_1 = 8
     local a = class.new("a")
     local b = class.inherit("b", a)
     function b:__destroy()
+        test_1 = 9
         assert_equal(5, test)
         test = 6
     end
@@ -174,4 +176,5 @@ function test_destroy()
     class.delete(a)
 
     assert_equal(7, test)
+    assert_equal(9, test_1)
 end

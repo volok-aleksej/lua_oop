@@ -3,68 +3,84 @@ local PROTECTED = "protected"
 local PRIVATE = "private"
 
 local metatable = {}
-metatable.get = getmetatable
-metatable.set = setmetatable
 metatable.tables = {}
 
-local function getmetatable(obj)
-  if not obj then return nil end
-  local meta = metatable.get(obj)
-  return metatable.tables[meta.__addr]
-end
-
-local function setmetatable(obj, tbl)
-  local meta = {__addr = tostring(obj):gsub("table: ", "")}
-  local mtable = {}
-  for name, value in pairs(tbl) do
-    if name == "__name"
-    or name == "__index"
-    or name == "__newindex"
-    or name == "__call"
-    then
-      meta[name] = value
-    else
-      mtable[name] = value
-    end
+-------------------------------------------------------------------------
+--                              metatables                             --
+-------------------------------------------------------------------------
+function metatable.get(obj)
+  local meta, mtable
+  if obj then
+     meta = getmetatable(obj)
+     if meta then mtable = metatable.tables[meta.__addr] end
   end
-  metatable.tables[meta.__addr] = mtable
-  metatable.set(obj, meta)
-  return obj
+  return mtable
 end
 
-local function create_function(obj, name, func)
+function metatable.set(obj, meta, tbl)
+  meta.__addr = tostring(obj):gsub("table: ", "")
+  metatable.tables[meta.__addr] = tbl
+  return setmetatable(obj, meta)
+end
+
+function metatable.name(obj)
+  local name
+  if obj then
+     meta = getmetatable(obj)
+     if meta then name = meta.__name end
+  end
+  return name
+end
+
+function metatable.index(obj, ...)
+  if obj then
+     meta = getmetatable(obj)
+     if meta then return meta.__index(obj, ...) end
+  end
+  return nil
+end
+
+-------------------------------------------------------------------------
+--                               function                              --
+-------------------------------------------------------------------------
+local func = {}
+function func.create(obj, name, func)
   local function fcall(obj, self, ...)
-    local objmt = getmetatable(obj)
-    local cmeta = getmetatable(objmt.__class)
-    local cselfmeta = getmetatable(cmeta.__self)
-    local super = cmeta.__super
-    if cselfmeta then cselfmeta.__incall = cselfmeta.__incall + 1 end
-    cmeta.__incall = cmeta.__incall + 1
+    local objmt = metatable.get(obj)
+    local cmeta = metatable.get(objmt.__class)
+    local cselfmeta = metatable.get(cmeta.__self)
+    local meta = cselfmeta or cmeta
+
     if objmt.__virtual and cselfmeta then
       obj = cselfmeta[name]
-      objmt = getmetatable(obj)
-      super = cselfmeta.__super
+      objmt = metatable.get(obj)
     end
-    local ret = objmt.__func(objmt.__class, ...)
-    if objmt.__super_call and super then 
-        for _, sf in ipairs(super) do
-            (function(obj, name, ...)
-                local func = sf[name]
-                if not func then return end
-                local fmeta = getmetatable(func)
-                if not fmeta then return end
-                if not fmeta.__func then return end
-                fmeta.__func(sf, ...)
-            end)(sf, name, ...)
+
+    meta.__incall = meta.__incall + 1
+    local ret
+    if objmt.__super_call then
+        local funcs = {}
+        metatable.index(objmt.__class, name, function(pfunc)
+            table.insert(funcs, pfunc)
+        end)
+        if #funcs > 0 then ret = {} end
+        for _, pfunc in ipairs(funcs) do
+          local fmeta = metatable.get(pfunc)
+          local res = fmeta.__func(fmeta.__class, ...)
+          if res then
+            if not ret then ret = {} end
+            ret[metatable.name(fmeta.__class)] = res
+          end
         end
+    else
+      ret = objmt.__func(objmt.__class, ...)
     end
-    cmeta.__incall = cmeta.__incall - 1
-    if cselfmeta then cselfmeta.__incall = cselfmeta.__incall - 1 end
+    meta.__incall = meta.__incall - 1
     return ret
   end
   
   local function findex(func, name)
-      local meta = getmetatable(func)
+      local meta = metatable.get(func)
       if name == "virtual" then
         return meta.__virtual
       elseif name == "self" then
@@ -75,7 +91,7 @@ local function create_function(obj, name, func)
   end
   
   local function fnewindex(func, name, value)
-      local meta = getmetatable(func)
+      local meta = metatable.get(func)
       if name == "virtual" then
         meta.__virtual = value
       elseif name == "self" then
@@ -86,12 +102,12 @@ local function create_function(obj, name, func)
         or value == PRIVATE then meta.__access = value end
       end
   end
-  local meta = getmetatable(obj)
-  meta[name] = setmetatable({}, {__newindex = fnewindex,
+  local meta = metatable.get(obj)
+  meta[name] = metatable.set({}, {__newindex = fnewindex,
                                  __index = findex,
                                  __call = fcall,
-                                 __name = name,
-                                 __access = PUBLIC,
+                                 __name = name},
+                                {__access = PUBLIC,
                                  __class = obj,
                                  __func = func,
                                  __virtual = false,
@@ -100,55 +116,33 @@ local function create_function(obj, name, func)
   return meta[name]
 end
 
-local new
-local function inherit(name, ...)
-  if type(name) ~= "string" then error("incorrect first argument: use inherite(name:string, args..)") end
-  local child = new(name)
-  local meta = getmetatable(child)
-  meta.__super = {}
-  for _, arg in ipairs({...}) do
-    local ameta = getmetatable(arg)
-    if ameta and ameta.__self then
-        ameta.__self = child
-        table.insert(meta.__super, arg)
-    end
-  end
-  return child
+function func.is_func(obj)
+  local meta = metatable.get(obj)
+  if meta and meta.__func then return true end
+  return false
 end
 
-local function check_access(obj, super)
-    local meta = getmetatable(obj)
-    if not meta then return obj end
-    local cmeta = getmetatable(meta.__class)
-    cmeta = getmetatable(cmeta.__self)
-    if cmeta.__incall > 0 then
-        if not super or meta.__access ~= PRIVATE then return obj end
-    else
-        if meta.__access == PUBLIC then return obj end
-    end
-    return nil
-end
-
+-------------------------------------------------------------------------
+--                                 super                               --
+-------------------------------------------------------------------------
 local function super(obj)
   local function sindex(s, name)
     local function get_index(obj, name)
-      local sobj = metatable.get(obj).__index(obj, name, nil, true)
-      if type(sobj) == "table" then
-        local sobjmt = getmetatable(sobj)
-        if sobjmt and sobjmt.__func then
+      local sobj = metatable.index(obj, name, nil, true)
+      if func.is_func(sobj) then 
           return function(self, ...)
-            sobjmt.__func(obj, ...)
+              return metatable.get(sobj).__func(obj, ...)
           end
-        end
+      else 
+        return sobj
       end
-      return sobj
     end
 
-    local meta = getmetatable(s)
+    local meta = metatable.get(s)
     if meta.__class then
       return get_index(meta.__class, name)
     else
-      local sobjects = getmetatable(meta.__self).__super
+      local sobjects = metatable.get(meta.__self).__super
       for i = 1, #sobjects do
         local data = get_index(sobjects[i], name)
         if data then return data end
@@ -158,59 +152,87 @@ local function super(obj)
   end
 
   local function scall(s, name)
-      local meta = getmetatable(s)
+      local meta = metatable.get(s)
       if meta.__singles[name] then return meta.__singles[name] end
 
-      local pmt = getmetatable(meta.__self)
+      local pmt = metatable.get(meta.__self)
       if not pmt.__super then return nil end
       local sobj
       for _, val in pairs(pmt.__super) do
-        if metatable.get(val).__name == name then
+        if metatable.name(val) == name then
           sobj = val
           break
         end
       end
 
-      local ssingle = setmetatable({}, {__name = "super("..name..")",
-                                      __index = sindex,
-                                      __self = meta.__self,
-                                      __class = val})
+      local ssingle = metatable.set({}, {__name = "super("..name..")",
+                                         __index = sindex},
+                                        {__self = meta.__self,
+                                         __class = val})
       meta.__singles[name] = ssingle
       return ssingle
   end
-  local pmt = getmetatable(obj)
+  local pmt = metatable.get(obj)
   if not pmt or not pmt.__super then return nil end
-  local super
-  if pmt.__sobj then
-    super = pmt.__sobj
-  else
-    local smeta = {__name = "super",
-                   __index = sindex,
-                   __call = scall,
-                   __self = obj,
-                   __singles = {}}
-    super = setmetatable({}, smeta)
-    pmt.__sobj = super
+  if not pmt.__sobj then 
+    pmt.__sobj = metatable.set({}, {__name = "super",
+                                   __index = sindex,
+                                   __call = scall},
+                                  {__self = obj,
+                                   __singles = {}})
   end
-  return super
+  return pmt.__sobj
 end
 
-local function get_self(obj)
-  local meta = getmetatable(obj)
+-------------------------------------------------------------------------
+--                                 class                               --
+-------------------------------------------------------------------------
+local class = {}
+function class.inherit(name, ...)
+  if type(name) ~= "string" then error("incorrect first argument: use inherite(name:string, args..)") end
+  local child = class.new(name)
+  local meta = metatable.get(child)
+  meta.__super = {}
+  for _, arg in ipairs({...}) do
+    local ameta = metatable.get(arg)
+    if ameta and ameta.__self then
+        ameta.__self = child
+        table.insert(meta.__super, arg)
+    end
+  end
+  return child
+end
+
+function class.self(obj)
+  local meta = metatable.get(obj)
   if meta then return meta.__self end
   return nil
 end
 
-function new(name)
+function class.new(name)
   if type(name) ~= "string" then error("incorrect 1 argument: use new(name:string[, init:function, gc:function])") end
   if init and type(init) ~= "function" then error("incorrect 2 argument: use new(name:string[, init:function, gc:function])") end
   if gc and type(gc) ~= "function" then error("incorrect 3 argument: use new(name:string[, init:function, gc:function])") end
   
+  local function check_access(obj, super)
+      local meta = metatable.get(obj)
+      if not meta then return obj end
+      local cmeta = metatable.get(meta.__class)
+      cmeta = metatable.get(cmeta.__self)
+      if cmeta.__incall > 0 then
+          if not super or meta.__access ~= PRIVATE then return obj end
+      else
+          if meta.__access == PUBLIC then return obj end
+      end
+      return nil
+  end
+
   local function index(obj, name, callback, issuper)
     if name == "super" then return super(obj) end
     if name == "inherit" then return inherit end
 
-    local pmt = getmetatable(obj)
+    if rawget(obj, name) then return rawget(obj, name) end
+    local pmt = metatable.get(obj)
     local attr = check_access(pmt.__private, issuper)
     if attr and attr[name] then return attr[name] end
     attr = check_access(pmt.__protected, issuper)
@@ -221,7 +243,6 @@ function new(name)
       return callback(data)
     end
 
-    if rawget(obj, name) then return rawget(obj, name) end
     if pmt[name]
     and check_callback(pmt[name]) then return check_access(pmt[name], issuper) end
     if pmt.__super then
@@ -242,13 +263,14 @@ function new(name)
 
   local function newindex(obj, name, value)
     if type(value) == "function" then
-      local meta = getmetatable(obj)
-      if string.sub(name, 1, 2) == "__" and name ~= "__destroy" then
+      local meta = metatable.get(obj)
+      if string.sub(name, 1, 2) == "__"
+      and name ~= "__destroy" then
         meta[name] = value
       else
-        local func = create_function(obj, name, value)
+        local func = func.create(obj, name, value)
         if name == "__destroy" then
-            getmetatable(func).__super_call = true 
+            metatable.get(func).__super_call = true 
         end
 
         index(obj, name, function(pfunc)
@@ -265,8 +287,8 @@ function new(name)
   end
 
   local function call(obj, ...)
-    local meta = getmetatable(obj)
-    local selfmeta = getmetatable(meta.__self)
+    local meta = metatable.get(obj)
+    local selfmeta = metatable.get(meta.__self)
     selfmeta.__incall = selfmeta.__incall + 1
     meta.__incall = selfmeta.__incall + 1
     if meta.__super then 
@@ -281,39 +303,37 @@ function new(name)
 
   local obj = {}
   local private = {}
-  setmetatable(private, {__name = "private",
-                         __class = obj,
-                         __access = PRIVATE})
+  metatable.set(private, {__name = "private"},
+                         {__class = obj,
+                          __access = PRIVATE})
   local protected = {}
-  setmetatable(protected, {__name = "protected",
-                           __class = obj,
-                           __access = PROTECTED})
-  return setmetatable(obj, {__index = index,
-                           __newindex = newindex,
-                           __call = call,
-                           __name = name,
-                           __incall = 0,
-                           __self = obj,
-                           __private = private,
-                           __protected = protected,
-                           __init = nil,
-                           __destroy = nil,
-                           __super = nil})
+  metatable.set(protected, {__name = "protected"},
+                           {__class = obj,
+                            __access = PROTECTED})
+  return metatable.set(obj, {__index = index,
+                             __newindex = newindex,
+                             __call = call,
+                             __name = name},
+                            {__incall = 0,
+                             __self = obj,
+                             __private = private,
+                             __protected = protected})
 end
 
-local function delete(obj)
+function class.delete(obj)
     local function del_mtable(obj)
         if not obj then return end
-        local meta = metatable.get(obj)
+        local meta = getmetatable(obj)
+        if not meta then return end
         metatable.tables[meta.__addr] = nil
     end
 
     local function del_obj(obj)
-        local meta = metatable.get(obj)
-        local mtable = metatable.tables[meta.__addr]
-        metatable.tables[meta.__addr] = nil
+        local mtable = metatable.get(obj)
+        del_mtable(obj)
 
         --clear all inner data
+        mtable.__destroy = nil
         mtable.__init = nil
         mtable.__incall = nil
         mtable.__self = nil
@@ -337,23 +357,21 @@ local function delete(obj)
     end
     
     -- call destructor
-    local meta = metatable.get(obj)
-    local mtable = metatable.tables[meta.__addr]
-    if mtable.__destroy then
+    local mtable = metatable.get(obj)
+    if mtable and mtable.__destroy then
         mtable.__destroy(obj)
     end
 
     --get full object
-    local meta = metatable.get(obj)
-    local mtable = metatable.tables[meta.__addr]
-    if mtable.__self ~= obj then
+    local mtable = metatable.get(obj)
+    if mtable and mtable.__self ~= obj then
         obj = mtable.__self
     end
 
     del_obj(obj)
 end
 
-local function to_json(obj)
+function class.json(obj)
     local function iterate(obj)
         local json = ""
         for name, value in pairs(obj) do
@@ -361,7 +379,7 @@ local function to_json(obj)
                 if type(value) == "function" then
                     json = json.."\""..name.."\":\"function\","
                 elseif type(value) == "table" then
-                    local meta = getmetatable(value)
+                    local meta = metatable.get(value)
                     if meta and meta.__func then
                         local virtual = meta.__virtual and "virtual " or ""
                         json = json.."\""..name.."\":\""..virtual.."function\","
@@ -387,7 +405,7 @@ local function to_json(obj)
         local json = ""
         local s = iterate(obj)
         if string.len(s) ~= 0 then json = "public:{"..s.."}," end
-        local meta = getmetatable(obj)
+        local meta = metatable.get(obj)
         s = iterate(meta)
         if string.len(s) ~= 0 then json = json..s.."," end
         s = iterate(meta.__private)
@@ -396,7 +414,7 @@ local function to_json(obj)
         if string.len(s) ~= 0 then json = json.."protected:{"..s.."}," end
         if meta.__super then
             for _, child in ipairs(meta.__super) do
-                json = json.."\""..metatable.get(child).__name.."\":{" ..iterate_object(child).."},"
+                json = json.."\""..metatable.name(child).."\":{" ..iterate_object(child).."},"
             end
         end
         return json:sub(1, -2)
@@ -404,11 +422,8 @@ local function to_json(obj)
     return "{"..iterate_object(obj).."}"
 end
 
-return {new = new,
-        delete = delete,
-        inherit = inherit,
-        self = get_self,
-        json = to_json,
-        PUBLIC = PUBLIC,
-        PROTECTED = PROTECTED,
-        PRIVATE = PRIVATE}
+class.PUBLIC = PUBLIC
+class.PROTECTED = PROTECTED
+class.PRIVATE = PRIVATE
+
+return class

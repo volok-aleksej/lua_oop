@@ -136,3 +136,26 @@ c({data=6})          -- calls a:__init(), b:__init() and c:__init()
 a({data=6})          -- call only a:__init()
 b({data=6})          -- call only b:__init()
 ```
+
+**destroy class object**
+class.destroy(*obj*)
+* function destroys all classes of object\
+  if *__destroy()* function is virtual is called all classes function from child to parent\
+  if *__destroy()* function is non virtual is called function of classes of  from *obj* to its parent
+* * *obj* : class object
+```
+    local a = class.new("a")
+    local b = class.inherit("b", a)
+
+    function a:__destroy()
+      print("a:__destroy")
+    end
+    a.__destroy.virtual = true
+
+    function b:__destroy()
+      print("b:__destroy")
+    end
+
+    class.delete(a)   -- b:__destroy
+                      -- a:__destroy
+```
