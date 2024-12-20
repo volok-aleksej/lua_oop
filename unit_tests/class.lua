@@ -155,3 +155,23 @@ function test_access_functions()
     a()
     a:data()
 end
+
+function test_destroy()
+    local test = 5
+    local a = class.new("a")
+    local b = class.inherit("b", a)
+    function b:__destroy()
+        assert_equal(5, test)
+        test = 6
+    end
+
+    function a:__destroy()
+        assert_equal(6, test)
+        test = 7
+    end
+    a.__destroy.virtual = true
+
+    class.delete(a)
+
+    assert_equal(7, test)
+end

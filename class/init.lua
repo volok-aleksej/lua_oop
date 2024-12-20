@@ -7,48 +7,27 @@ metatable.get = getmetatable
 metatable.set = setmetatable
 metatable.tables = {}
 
-local function delmetatable(obj)
-  for i = 1, #metatable.tables do
-    local tbl = metatable.tables[i]
-    if tbl.__owner == obj then
-      table.remove(metatable.tables, i)
-    end
-  end
-end
-
 local function getmetatable(obj)
+  if not obj then return nil end
   local meta = metatable.get(obj)
-  local mtable
-  for _, tbl in ipairs(metatable.tables) do
-    if tbl.__owner == obj then
-      return tbl
-    end
-  end
-  return nil
+  return metatable.tables[meta.__addr]
 end
 
 local function setmetatable(obj, tbl)
-  local meta = {}
+  local meta = {__addr = tostring(obj):gsub("table: ", "")}
   local mtable = {}
   for name, value in pairs(tbl) do
     if name == "__name"
     or name == "__index"
     or name == "__newindex"
     or name == "__call"
-    or name == "__gc"
     then
       meta[name] = value
     else
       mtable[name] = value
     end
   end
-  if not meta.__gc then 
-    meta.__gc = function(obj)
-      delmetatable(obj)
-    end
-  end
-  mtable.__owner = obj
-  table.insert(metatable.tables, mtable)
+  metatable.tables[meta.__addr] = mtable
   metatable.set(obj, meta)
   return obj
 end
@@ -58,15 +37,29 @@ local function create_function(obj, name, func)
     local objmt = getmetatable(obj)
     local cmeta = getmetatable(objmt.__class)
     local cselfmeta = getmetatable(cmeta.__self)
-    cselfmeta.__incall = cselfmeta.__incall + 1
-    cmeta.__incall = cselfmeta.__incall + 1
-    if objmt.__virtual and objmt.__self then
+    local super = cmeta.__super
+    if cselfmeta then cselfmeta.__incall = cselfmeta.__incall + 1 end
+    cmeta.__incall = cmeta.__incall + 1
+    if objmt.__virtual and cselfmeta then
       obj = cselfmeta[name]
       objmt = getmetatable(obj)
+      super = cselfmeta.__super
     end
     local ret = objmt.__func(objmt.__class, ...)
+    if objmt.__super_call and super then 
+        for _, sf in ipairs(super) do
+            (function(obj, name, ...)
+                local func = sf[name]
+                if not func then return end
+                local fmeta = getmetatable(func)
+                if not fmeta then return end
+                if not fmeta.__func then return end
+                fmeta.__func(sf, ...)
+            end)(sf, name, ...)
+        end
+    end
     cmeta.__incall = cmeta.__incall - 1
-    cselfmeta.__incall = cselfmeta.__incall - 1
+    if cselfmeta then cselfmeta.__incall = cselfmeta.__incall - 1 end
     return ret
   end
   
@@ -102,6 +95,7 @@ local function create_function(obj, name, func)
                                  __class = obj,
                                  __func = func,
                                  __virtual = false,
+                                 __super_call = false,
                                  __self = obj})
   return meta[name]
 end
@@ -249,10 +243,13 @@ function new(name)
   local function newindex(obj, name, value)
     if type(value) == "function" then
       local meta = getmetatable(obj)
-      if string.sub(name, 1, 2) == "__" then
+      if string.sub(name, 1, 2) == "__" and name ~= "__destroy" then
         meta[name] = value
       else
         local func = create_function(obj, name, value)
+        if name == "__destroy" then
+            getmetatable(func).__super_call = true 
+        end
 
         index(obj, name, function(pfunc)
             pfunc.self = obj
@@ -282,22 +279,6 @@ function new(name)
     meta.__incall = selfmeta.__incall - 1
   end
 
-  local function __gc(obj)
-    local meta = getmetatable(obj)
-    local selfmeta = getmetatable(meta.__self)
-    delmetatable(obj)
-    selfmeta.__incall = selfmeta.__incall + 1
-    meta.__incall = selfmeta.__incall + 1
-    if meta.__destroy then meta.__destroy(obj) end
-    if meta.__super then 
-        for i = 1, #meta.__super do
-            table.remove(meta.__super, 1)
-        end
-    end
-    selfmeta.__incall = selfmeta.__incall - 1
-    meta.__incall = selfmeta.__incall - 1
-  end
-
   local obj = {}
   local private = {}
   setmetatable(private, {__name = "private",
@@ -311,7 +292,6 @@ function new(name)
                            __newindex = newindex,
                            __call = call,
                            __name = name,
-                           __gc = __gc,
                            __incall = 0,
                            __self = obj,
                            __private = private,
@@ -319,6 +299,58 @@ function new(name)
                            __init = nil,
                            __destroy = nil,
                            __super = nil})
+end
+
+local function delete(obj)
+    local function del_mtable(obj)
+        if not obj then return end
+        local meta = metatable.get(obj)
+        metatable.tables[meta.__addr] = nil
+    end
+
+    local function del_obj(obj)
+        local meta = metatable.get(obj)
+        local mtable = metatable.tables[meta.__addr]
+        metatable.tables[meta.__addr] = nil
+
+        --clear all inner data
+        mtable.__init = nil
+        mtable.__incall = nil
+        mtable.__self = nil
+
+        del_mtable(mtable.__protected)
+        mtable.__protected = nil
+        del_mtable(mtable.__private)
+        mtable.__private = nil
+        if mtable.__sobj then del_mtable(mtable.__sobj) end
+        mtable.__sobj = nil
+        local super = mtable.__super
+        mtable.__super = nil
+        for name, value in pairs(mtable) do
+            del_mtable(value)
+        end
+        if super then
+            for i =1, #super do
+                del_obj(super[i])
+            end
+        end
+    end
+    
+    -- call destructor
+    local meta = metatable.get(obj)
+    local mtable = metatable.tables[meta.__addr]
+    if mtable.__destroy then
+        mtable.__destroy(obj)
+    end
+
+    --get full object
+    local meta = metatable.get(obj)
+    local mtable = metatable.tables[meta.__addr]
+    if mtable.__self ~= obj then
+        obj = mtable.__self
+    end
+
+    del_obj(obj)
 end
 
 local function to_json(obj)
@@ -374,6 +406,7 @@ local function to_json(obj)
 end
 
 return {new = new,
+        delete = delete,
         inherit = inherit,
         self = get_self,
         json = to_json,
