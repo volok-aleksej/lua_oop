@@ -396,8 +396,7 @@ local function to_json(obj)
         if string.len(s) ~= 0 then json = json.."protected:{"..s.."}," end
         if meta.__super then
             for _, child in ipairs(meta.__super) do
-                local cmeta = getmetatable(child)
-                json = json.."\""..cmeta.__name.."\":{" ..iterate_object(child).."},"
+                json = json.."\""..metatable.get(child).__name.."\":{" ..iterate_object(child).."},"
             end
         end
         return json:sub(1, -2)
