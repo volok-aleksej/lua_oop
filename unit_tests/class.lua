@@ -180,24 +180,35 @@ function test_destroy()
 end
 
 
-function test_third_inherit()
+function test_multi_inherit()
     local a = class.new("a")
     local b = class.inherit("b", a)
-    local c = class.inherit("c", b)
+    local d = class.new("d")
+    local c = class.inherit("c", b, d)
+
+    local test = 5
+    function d:data()
+        test = 6
+    end
     function c:data()
-        print("c:data")
+        test = 7
     end
-
     function b:data()
-        print("b:data")
+        test = 8
     end
-    b.data.virtual = true
-
     function a:data()
-        print("a:data")
+        test = 9
     end
-
     a.data.virtual = true
 
     b:data()
+    assert_equal(7, test)
+
+    test = 5
+    a:data()
+    assert_equal(7, test)
+
+    test = 5
+    d:data()
+    assert_equal(6, test)
 end

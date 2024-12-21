@@ -90,15 +90,20 @@ function func.create(obj, name, func)
       end
   end
   
-  local function set_virtual(func)
-      local meta = metatable.get(func)
-      meta.__virtual = value
+  local function set_virtual(obj, value)
+      local meta = metatable.get(obj)
+      local cmeta = metatable.get(meta.__class)
+      metatable.index(cmeta.__self, metatable.name(obj), function(pfunc)
+          local meta = metatable.get(pfunc)
+          meta.__virtual = value
+          return pfunc == obj
+      end)
   end
   
   local function fnewindex(func, name, value)
       local meta = metatable.get(func)
       if name == "virtual" then
-        set_virtual(func)
+        set_virtual(func, value)
       elseif name == "access" then
         if value == PRIVATE
         or value == PROTECTED
@@ -260,10 +265,8 @@ function class.new(name)
     if pmt.__super then
       for _, obj in pairs(pmt.__super) do
         local sobj = nil
-        if callback then 
-            index(obj, name, function(pfunc)
-                    return callback(pfunc)
-                end)
+        if callback then
+            sobj = index(obj, name, function(pfunc) return callback(pfunc) end)
         else
             sobj = index(obj, name, nil, true)
         end
@@ -284,6 +287,12 @@ function class.new(name)
         if name == "__destroy" then
             metatable.get(func).__super_call = true 
         end
+        index(obj, name, function(pfunc)
+            if pfunc.virtual then
+                func.virtual = pfunc.virtual
+            end
+            return false
+        end)
       end
     elseif string.sub(name, 1, 2) ~= "__" then
       rawset(obj, name, value)
