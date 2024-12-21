@@ -90,12 +90,15 @@ function func.create(obj, name, func)
       end
   end
   
+  local function set_virtual(func)
+      local meta = metatable.get(func)
+      meta.__virtual = value
+  end
+  
   local function fnewindex(func, name, value)
       local meta = metatable.get(func)
       if name == "virtual" then
-        meta.__virtual = value
-      elseif name == "self" then
-        meta.__self = value
+        set_virtual(func)
       elseif name == "access" then
         if value == PRIVATE
         or value == PROTECTED
@@ -111,8 +114,7 @@ function func.create(obj, name, func)
                                  __class = obj,
                                  __func = func,
                                  __virtual = false,
-                                 __super_call = false,
-                                 __self = obj})
+                                 __super_call = false})
   return meta[name]
 end
 
@@ -190,13 +192,23 @@ end
 local class = {}
 function class.inherit(name, ...)
   if type(name) ~= "string" then error("incorrect first argument: use inherite(name:string, args..)") end
+
+  local function set_self(meta, obj)
+    meta.__self = obj
+    if not meta.__super then return end
+    for _, parent in ipairs(meta.__super) do 
+      local ameta = metatable.get(parent)
+      set_self(ameta, obj)
+    end
+  end
+
   local child = class.new(name)
   local meta = metatable.get(child)
   meta.__super = {}
   for _, arg in ipairs({...}) do
     local ameta = metatable.get(arg)
     if ameta and ameta.__self then
-        ameta.__self = child
+        set_self(ameta, child)
         table.insert(meta.__super, arg)
     end
   end
@@ -272,14 +284,6 @@ function class.new(name)
         if name == "__destroy" then
             metatable.get(func).__super_call = true 
         end
-
-        index(obj, name, function(pfunc)
-            pfunc.self = obj
-            if pfunc.virtual then
-                func.virtual = pfunc.virtual
-            end
-            return false
-        end)
       end
     elseif string.sub(name, 1, 2) ~= "__" then
       rawset(obj, name, value)

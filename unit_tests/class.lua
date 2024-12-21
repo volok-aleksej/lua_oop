@@ -178,3 +178,26 @@ function test_destroy()
     assert_equal(7, test)
     assert_equal(9, test_1)
 end
+
+
+function test_third_inherit()
+    local a = class.new("a")
+    local b = class.inherit("b", a)
+    local c = class.inherit("c", b)
+    function c:data()
+        print("c:data")
+    end
+
+    function b:data()
+        print("b:data")
+    end
+    b.data.virtual = true
+
+    function a:data()
+        print("a:data")
+    end
+
+    a.data.virtual = true
+
+    b:data()
+end
