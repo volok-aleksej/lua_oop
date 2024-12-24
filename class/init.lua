@@ -2,6 +2,10 @@ local PUBLIC = "public"
 local PROTECTED = "protected"
 local PRIVATE = "private"
 
+local SUPER = "super"
+local METHOD = "method"
+local CLASS = "class"
+
 local metatable = {}
 metatable.tables = {}
 
@@ -51,7 +55,7 @@ function func.create(obj, name, func)
     local cselfmeta = metatable.get(cmeta.__self)
     local meta = cselfmeta or cmeta
 
-    if objmt.__virtual and cselfmeta then
+    if objmt.__virtual and cselfmeta and cselfmeta[name] then
       obj = cselfmeta[name]
       objmt = metatable.get(obj)
     end
@@ -158,6 +162,16 @@ local function super(obj)
     return nil
   end
 
+  local function snewindex(s, name, value)
+    local meta = metatable.get(s)
+    print(meta.__class, meta.__self)
+    if meta.__class then
+      meta.__class[name] = value
+    else
+      meta.__self[name] = value
+    end
+  end
+
   local function scall(s, name)
       local meta = metatable.get(s)
       if meta.__singles[name] then return meta.__singles[name] end
@@ -166,24 +180,28 @@ local function super(obj)
       if not pmt.__super then return nil end
       local sobj
       for _, val in pairs(pmt.__super) do
+        print(val)
         if metatable.name(val) == name then
           sobj = val
           break
         end
       end
 
-      local ssingle = metatable.set({}, {__name = "super("..name..")",
-                                         __index = sindex},
+      print(sobj)
+      local ssingle = metatable.set({}, {__name = SUPER.."("..name..")",
+                                         __index = sindex,
+                                         __newindex = snewindex},
                                         {__self = meta.__self,
-                                         __class = val})
+                                         __class = sobj})
       meta.__singles[name] = ssingle
       return ssingle
   end
   local pmt = metatable.get(obj)
   if not pmt or not pmt.__super then return nil end
   if not pmt.__sobj then 
-    pmt.__sobj = metatable.set({}, {__name = "super",
+    pmt.__sobj = metatable.set({}, {__name = SUPER,
                                    __index = sindex,
+                                   __newindex = snewindex,
                                    __call = scall},
                                   {__self = obj,
                                    __singles = {}})
@@ -245,8 +263,7 @@ function class.new(name)
   end
 
   local function index(obj, name, callback, issuper)
-    if name == "super" then return super(obj) end
-    if name == "inherit" then return inherit end
+    if name == SUPER then return super(obj) end
 
     if rawget(obj, name) then return rawget(obj, name) end
     local pmt = metatable.get(obj)
@@ -438,5 +455,22 @@ end
 class.PUBLIC = PUBLIC
 class.PROTECTED = PROTECTED
 class.PRIVATE = PRIVATE
+
+class.SUPER = SUPER
+class.METHOD = METHOD
+class.CLASS = CLASS
+
+function class.name(obj)
+  return metatable.name(obj)
+end
+
+function class.type(obj)
+  local meta = metatable.get(obj)
+  local name = metatable.name(obj)
+  if func.is_func(obj) then return METHOD
+  elseif meta and meta.__self and name == SUPER then return SUPER
+  elseif meta and meta.__self and name ~= SUPER then return CLASS
+  else return type(obj) end
+end
 
 return class

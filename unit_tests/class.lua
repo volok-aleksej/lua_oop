@@ -75,6 +75,11 @@ function test_virtual()
     end
     a.virtual_func.virtual = true
 
+    function a:virtual_func_one()
+        self.attr5 = "attr5"
+    end
+    a.virtual_func_one.virtual = true
+
     function b:virtual_func()
         self.attr2 = "attr2"
         assert_equal(nil, self.attr1)
@@ -99,6 +104,8 @@ function test_virtual()
     assert_equal(nil, b.attr4)
     b:non_virt_func()
     assert_equal("attr4", b.attr4)
+    b:virtual_func_one()
+    assert_equal("attr5", b.attr5)
 end
 
 function test_super()
@@ -211,4 +218,21 @@ function test_multi_inherit()
     test = 5
     d:data()
     assert_equal(6, test)
+end
+
+function test_super_set()
+    local a = class.new("a")
+    local b = class.inherit("b", a)
+    
+    function a:data()
+        self.attr2 = 5
+    end
+
+    function b:data()
+        self.super:data()
+        self.super.attr2 = 6
+    end
+
+    b.data()
+    assert_equal(6, b.attr2)
 end
