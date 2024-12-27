@@ -258,3 +258,63 @@ function test_type()
     assert_equal("number", class.type(a.test))
     assert_equal("number", class.type(b.test))
 end
+
+function test_iteration()
+    local a = class.new("a")
+    local b = class.inherit("b", a)
+
+    local function iter(obj, mass)
+        for name, value in pairs(obj) do
+            table.insert(mass, {name=name, type=class.type(value)})
+        end
+    end
+
+    function a:data()
+        local mass = {}
+        iter(self, mass)
+        assert_equal(2, #mass)
+        assert_equal("test", mass[1].name)
+        assert_equal("number", mass[1].type)
+        assert_equal("data", mass[2].name)
+        assert_equal(class.METHOD, mass[2].type)
+    end
+    a.test = 5
+
+    function b:data()
+        self.__protected.arg = "arg"
+        local mass = {}
+        iter(self, mass)
+        assert_equal(6, #mass)
+        assert_equal("test", mass[1].name)
+        assert_equal("number", mass[1].type)
+        assert_equal("arg", mass[2].name)
+        assert_equal("string", mass[2].type)
+        assert_equal(class.METHOD, mass[3].type)
+        assert_equal(class.METHOD, mass[4].type)
+        assert_equal("test", mass[5].name)
+        assert_equal("number", mass[5].type)
+        assert_equal("data", mass[6].name)
+        assert_equal(class.METHOD, mass[6].type)
+        self.super:data()
+    end
+
+    function b:func()
+        self.__protected.arg = "arg"
+    end
+    b.func.access = class.PRIVATE
+    b.test = 6
+
+    b:data()
+
+    local mass = {}
+    iter(b, mass)
+    assert_equal(4, #mass)
+    assert_equal("test", mass[1].name)
+    assert_equal("number", mass[1].type)
+    assert_equal("data", mass[2].name)
+    assert_equal(class.METHOD, mass[2].type)
+    assert_equal("test", mass[3].name)
+    assert_equal("number", mass[3].type)
+    assert_equal("data", mass[4].name)
+    assert_equal(class.METHOD, mass[4].type)
+end

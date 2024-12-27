@@ -297,7 +297,7 @@ function class.new(name)
   local function newindex(obj, name, value)
     if type(value) == "function" then
       local meta = metatable.get(obj)
-      if string.sub(name, 1, 2) == "__"
+      if name:sub(1, 2) == "__"
       and name ~= "__destroy" then
         meta[name] = value
       else
@@ -312,7 +312,7 @@ function class.new(name)
             return false
         end)
       end
-    elseif string.sub(name, 1, 2) ~= "__" then
+    elseif name:sub(1, 2) ~= "__" then
       rawset(obj, name, value)
     end
   end
@@ -332,6 +332,48 @@ function class.new(name)
     meta.__incall = selfmeta.__incall - 1
   end
 
+  local function cpairs(obj)
+    local objects = {}
+    local function iterate_object(obj, super)
+      table.insert(objects, obj)
+      local meta = metatable.get(obj)
+      if check_access(meta.__protected, super) then 
+        table.insert(objects, meta.__protected)
+      end
+      if check_access(meta.__private, super) then 
+        table.insert(objects, meta.__private)
+      end
+      local methods = {}
+      for name, value in pairs(meta) do
+        if name:sub(1, 2) ~= "__" and check_access(value, super) then
+          methods[name] = value
+        end
+      end
+      table.insert(objects, methods)
+    end
+    local meta = metatable.get(obj)
+    iterate_object(obj, false)
+    if meta and meta.__super then
+      for _, parent in ipairs(meta.__super) do
+        iterate_object(parent, false)
+      end
+    end
+    local i = 1
+    local in_obj = objects[i]
+    return function(_, k)
+      repeat
+        k, v = next(in_obj, k)
+        if k ~= nil then return k, v
+        else i = i + 1
+        end
+        if i <= #objects then in_obj = objects[i]
+        else in_obj = nil
+        end
+      until not in_obj
+      return nil, nil
+    end, in_obj, nil
+  end
+
   local obj = {}
   local private = {}
   metatable.set(private, {__name = "private"},
@@ -344,7 +386,8 @@ function class.new(name)
   return metatable.set(obj, {__index = index,
                              __newindex = newindex,
                              __call = call,
-                             __name = name},
+                             __name = name,
+                             __pairs = cpairs},
                             {__incall = 0,
                              __self = obj,
                              __type = CLASS,
@@ -408,7 +451,7 @@ function class.json(obj)
     local function iterate(obj)
         local json = ""
         for name, value in pairs(obj) do
-            if string.sub(name, 1, 2) ~= "__" then
+            if name:sub(1, 2) ~= "__" then
                 if type(value) == "function" then
                     json = json.."\""..name.."\":\"function\","
                 elseif type(value) == "table" then
