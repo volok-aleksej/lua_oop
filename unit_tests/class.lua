@@ -236,3 +236,25 @@ function test_super_set()
     b.data()
     assert_equal(6, b.attr2)
 end
+
+function test_type()
+    local a = class.new("a")
+    local b = class.inherit("b", a)
+
+    function a:data()
+    end
+    a.test = 5
+
+    function b:data()
+    end
+    b.test = 6
+
+    assert_equal(class.CLASS, class.type(a))
+    assert_equal(class.CLASS, class.type(b))
+    assert_equal(class.METHOD, class.type(a.data))
+    assert_equal(class.METHOD, class.type(b.data))
+    assert_equal(class.SUPER, class.type(b.super))
+    assert_equal(class.SUPER, class.type(b.super(a)))
+    assert_equal("number", class.type(a.test))
+    assert_equal("number", class.type(b.test))
+end

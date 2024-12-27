@@ -6,6 +6,8 @@ local SUPER = "super"
 local METHOD = "method"
 local CLASS = "class"
 
+local class = {}
+local method = {}
 local metatable = {}
 metatable.tables = {}
 
@@ -45,10 +47,9 @@ function metatable.index(obj, ...)
 end
 
 -------------------------------------------------------------------------
---                               function                              --
+--                                method                               --
 -------------------------------------------------------------------------
-local func = {}
-function func.create(obj, name, func)
+function method.create(obj, name, func)
   local function fcall(obj, self, ...)
     local objmt = metatable.get(obj)
     local cmeta = metatable.get(objmt.__class)
@@ -120,6 +121,7 @@ function func.create(obj, name, func)
                                  __call = fcall,
                                  __name = name},
                                 {__access = PUBLIC,
+                                 __type = METHOD,
                                  __class = obj,
                                  __func = func,
                                  __virtual = false,
@@ -127,9 +129,9 @@ function func.create(obj, name, func)
   return meta[name]
 end
 
-function func.is_func(obj)
+function method.is_method(obj)
   local meta = metatable.get(obj)
-  if meta and meta.__func then return true end
+  if meta and meta.__type == METHOD then return true end
   return false
 end
 
@@ -140,7 +142,7 @@ local function super(obj)
   local function sindex(s, name)
     local function get_index(obj, name)
       local sobj = metatable.index(obj, name, nil, true)
-      if func.is_func(sobj) then 
+      if method.is_method(sobj) then 
           return function(self, ...)
               return metatable.get(sobj).__func(obj, ...)
           end
@@ -164,7 +166,6 @@ local function super(obj)
 
   local function snewindex(s, name, value)
     local meta = metatable.get(s)
-    print(meta.__class, meta.__self)
     if meta.__class then
       meta.__class[name] = value
     else
@@ -174,24 +175,24 @@ local function super(obj)
 
   local function scall(s, name)
       local meta = metatable.get(s)
+      if class.type(name) == CLASS then name = class.name(name) end
       if meta.__singles[name] then return meta.__singles[name] end
 
       local pmt = metatable.get(meta.__self)
       if not pmt.__super then return nil end
       local sobj
       for _, val in pairs(pmt.__super) do
-        print(val)
         if metatable.name(val) == name then
           sobj = val
           break
         end
       end
 
-      print(sobj)
       local ssingle = metatable.set({}, {__name = SUPER.."("..name..")",
                                          __index = sindex,
                                          __newindex = snewindex},
                                         {__self = meta.__self,
+                                         __type = SUPER,
                                          __class = sobj})
       meta.__singles[name] = ssingle
       return ssingle
@@ -204,6 +205,7 @@ local function super(obj)
                                    __newindex = snewindex,
                                    __call = scall},
                                   {__self = obj,
+                                   __type = SUPER,
                                    __singles = {}})
   end
   return pmt.__sobj
@@ -212,7 +214,6 @@ end
 -------------------------------------------------------------------------
 --                                 class                               --
 -------------------------------------------------------------------------
-local class = {}
 function class.inherit(name, ...)
   if type(name) ~= "string" then error("incorrect first argument: use inherite(name:string, args..)") end
 
@@ -300,7 +301,7 @@ function class.new(name)
       and name ~= "__destroy" then
         meta[name] = value
       else
-        local func = func.create(obj, name, value)
+        local func = method.create(obj, name, value)
         if name == "__destroy" then
             metatable.get(func).__super_call = true 
         end
@@ -346,6 +347,7 @@ function class.new(name)
                              __name = name},
                             {__incall = 0,
                              __self = obj,
+                             __type = CLASS,
                              __private = private,
                              __protected = protected})
 end
@@ -367,6 +369,7 @@ function class.delete(obj)
         mtable.__init = nil
         mtable.__incall = nil
         mtable.__self = nil
+        mtable.__type = nil
 
         del_mtable(mtable.__protected)
         mtable.__protected = nil
@@ -466,10 +469,7 @@ end
 
 function class.type(obj)
   local meta = metatable.get(obj)
-  local name = metatable.name(obj)
-  if func.is_func(obj) then return METHOD
-  elseif meta and meta.__self and name == SUPER then return SUPER
-  elseif meta and meta.__self and name ~= SUPER then return CLASS
+  if meta and meta.__type then return meta.__type
   else return type(obj) end
 end
 
