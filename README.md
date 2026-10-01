@@ -1,5 +1,5 @@
 # lua_oop
-implementation lua oop like in cpp
+Implementing object-oriented Lua, similar to C++
 
 ## lua oop api
 **create class object**\
